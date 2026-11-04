@@ -1,0 +1,7 @@
+{#
+	Includes the stylesheet of the Backup pages. Why a <link> to a file of its
+	own and not a <style> block: see the head of style.css.
+
+	style_version is set by admin_backup.php from the file's modification time.
+#}
+<link rel="stylesheet" href="{{ basehref|default('') }}templates/ExtBackup/style.css?v={{ style_version|default(0) }}">

@@ -1,0 +1,180 @@
+<?php
+
+if (PHP_SAPI !== 'cli') {
+	http_response_code(404);
+	exit(1);
+}
+
+/**
+ * Checks how lib/userdata.inc.php is interpreted (DbConfig): parsed and never
+ * executed (it belongs to the panel user, the readers run as root); socket
+ * versus host and port, TLS options, sql_root - the same way Froxlor's
+ * Database class reads it. No database needed.
+ * Run:  php tests/db-config.php
+ */
+
+require __DIR__ . '/../lib/Froxlor/Ext/Backup/DbConfig.php';
+
+use Froxlor\Ext\Backup\DbConfig;
+
+$failed = 0;
+$check = static function (string $name, bool $ok, string $info = '') use (&$failed): void {
+	echo ($ok ? '  ok    ' : '  FAIL  ') . $name . ($ok || $info === '' ? '' : "\n        " . $info) . "\n";
+	if (!$ok) {
+		$failed++;
+	}
+};
+
+$dir = sys_get_temp_dir() . '/ext-backup-dbconfig-' . bin2hex(random_bytes(4));
+mkdir($dir, 0700);
+$file = $dir . '/userdata.inc.php';
+file_put_contents($file, <<<'PHP'
+<?php
+$sql = [
+	'debug' => false,
+	'host' => 'db.example.com',
+	'port' => '3307',
+	'user' => 'froxlor',
+	'password' => 'pa"ss\\word',
+	'db' => 'froxlor',
+	'ssl' => ['caFile' => '/etc/ssl/db-ca.pem', 'verifyServerCertificate' => true],
+];
+$sql_root = [
+	'0' => [
+		'caption' => 'Default',
+		'host' => 'localhost',
+		'socket' => '/run/mysqld/mysqld.sock',
+		'user' => 'root',
+		'password' => 'rootpw',
+		'ssl' => ['caFile' => '/etc/ssl/db-ca.pem', 'verifyServerCertificate' => false],
+	],
+	'1' => [
+		'caption' => 'Second',
+		'host' => 'db2.example.com',
+		'user' => 'root2',
+		'password' => 'rootpw2',
+		'ssl' => ['caFile' => '/etc/ssl/db2-ca.pem', 'verifyServerCertificate' => false],
+	],
+];
+PHP);
+
+[$sql, $sqlRoot] = DbConfig::readUserdata($file);
+$check('sql and sql_root parsed', is_array($sqlRoot) && count($sqlRoot) === 2 && !isset($sql_root));
+
+$panel = DbConfig::normalize($sql, (string)$sql['db']);
+$check('panel: host, port, db', $panel['host'] === 'db.example.com' && $panel['port'] === 3307 && $panel['db'] === 'froxlor');
+$check('panel: TLS keys read from ssl.caFile / ssl.verifyServerCertificate', $panel['ca_file'] === '/etc/ssl/db-ca.pem' && $panel['verify_cert'] === true);
+$check('panel: DSN uses host and port', DbConfig::dsn($panel, 'froxlor') === 'mysql:charset=utf8mb4;dbname=froxlor;host=db.example.com;port=3307', DbConfig::dsn($panel, 'froxlor'));
+$pdoMysql = extension_loaded('pdo_mysql');
+if ($pdoMysql) {
+	$opts = DbConfig::pdoOptions($panel);
+	$check('panel: PDO gets CA file and verification', ($opts[DbConfig::mysqlAttribute('SSL_CA')] ?? null) === '/etc/ssl/db-ca.pem'
+		&& ($opts[DbConfig::mysqlAttribute('SSL_VERIFY_SERVER_CERT')] ?? null) === true);
+} else {
+	echo "  skip  PDO option checks (pdo_mysql not loaded)\n";
+}
+$lines = DbConfig::clientOptions($panel);
+$check('panel: client options with host, port, CA and verification', in_array('host="db.example.com"', $lines, true) && in_array('port=3307', $lines, true)
+	&& in_array('ssl-ca="/etc/ssl/db-ca.pem"', $lines, true) && in_array('loose-ssl-verify-server-cert', $lines, true), implode(' | ', $lines));
+$check('panel: password is quoted and escaped in the options file', in_array('password="pa\\"ss\\\\word"', $lines, true), implode(' | ', $lines));
+
+$root0 = DbConfig::normalize($sqlRoot[0]);
+$check('root 0: socket wins over host', DbConfig::dsn($root0) === 'mysql:charset=utf8mb4;unix_socket=/run/mysqld/mysqld.sock', DbConfig::dsn($root0));
+$check('root 0: no TLS options over a socket (as in Froxlor)', count(DbConfig::pdoOptions($root0)) === 1);
+$lines = DbConfig::clientOptions($root0);
+$check('root 0: client options use the socket, no host/port/TLS', in_array('socket="/run/mysqld/mysqld.sock"', $lines, true)
+	&& !preg_grep('~^(host|port|ssl-ca)=~', $lines), implode(' | ', $lines));
+
+$root1 = DbConfig::normalize($sqlRoot[1]);
+$check('root 1: default port 3306', $root1['port'] === 3306 && str_ends_with(DbConfig::dsn($root1), 'host=db2.example.com;port=3306'));
+$check('root 1: verification switched off explicitly', in_array('loose-disable-ssl-verify-server-cert', DbConfig::clientOptions($root1), true)
+	&& (!$pdoMysql || DbConfig::pdoOptions($root1)[DbConfig::mysqlAttribute('SSL_VERIFY_SERVER_CERT')] === false));
+
+$plain = DbConfig::normalize(['host' => 'localhost', 'user' => 'u', 'password' => 'p']);
+$check('without ssl block: no TLS options', count(DbConfig::pdoOptions($plain)) === 1 && !preg_grep('~ssl~', DbConfig::clientOptions($plain)));
+if ($pdoMysql) {
+	$check('PDO attribute constants resolve without deprecation', is_int(DbConfig::mysqlAttribute('SSL_CA')));
+}
+
+// --- Parsed, never executed ------------------------------------------------
+$write = static function (string $name, string $content) use ($dir): string {
+	file_put_contents($dir . '/' . $name, $content);
+	return $dir . '/' . $name;
+};
+
+// Exactly what Froxlor 2.3 writes (PhpHelper::parseArrayToPhpFile): nowdoc passwords.
+$froxlorFormat = $write('froxlor.php', <<<'PHP'
+<?php
+// autogenerated froxlor file
+
+$sql = [
+	'debug' => false,
+	'host' => 'db.example.org',
+	'user' => 'froxlor',
+	'password' => <<<'EOT'
+pa'ss"w$rd\n{$x}
+EOT,
+	'db' => 'froxlor',
+	'ssl' => [
+		'caFile' => '/etc/ssl/certs/db-ca.pem',
+		'verifyServerCertificate' => true,
+	],
+];
+$sql_root = [
+	'0' => [
+		'caption' => 'Default',
+		'host' => 'db.example.org',
+		'user' => 'root',
+		'password' => <<<'EOT'
+secret
+EOT,
+	],
+];
+PHP);
+[$sql, $sqlRoot] = DbConfig::readUserdata($froxlorFormat);
+$check('Froxlor format: nowdoc password read literally', ($sql['password'] ?? null) === 'pa\'ss"w$rd\n{$x}', var_export($sql['password'] ?? null, true));
+$check('Froxlor format: sql_root and ssl block read', ($sqlRoot[0]['password'] ?? null) === 'secret' && ($sql['ssl']['verifyServerCertificate'] ?? null) === true && ($sql['debug'] ?? null) === false);
+
+$old = $write('old.php', "<?php\n\$sql['host'] = 'localhost';\n\$sql['user'] = \"froxlor\";\n\$sql['password'] = 'p\\'w\\\\x';\n\$sql['db'] = 'froxlor';\n\$sql['port'] = 3306;\n\$sql_root[0]['user'] = 'root';\n\$sql_root[0]['debug'] = FALSE;\n?>\n");
+[$sql, $sqlRoot] = DbConfig::readUserdata($old);
+$check('line-by-line format, escapes, ints, closing tag', $sql['password'] === "p'w\\x" && $sql['user'] === 'froxlor' && $sql['port'] === 3306 && $sqlRoot[0]['debug'] === false, var_export([$sql, $sqlRoot], true));
+
+$marker = $dir . '/executed';
+$evil = [
+	'function call as value' => "<?php\n\$sql = ['user' => 'x', 'db' => 'y', 'password' => touch('$marker')];\n",
+	'statement before the assignment' => "<?php\ntouch('$marker');\n\$sql = ['user' => 'x', 'db' => 'y'];\n",
+	'interpolated string' => "<?php\n\$sql = ['user' => \"{\${touch('$marker')}}\", 'db' => 'y'];\n",
+	'heredoc with interpolation' => "<?php\n\$sql = ['user' => <<<EOT\n{\$x}\nEOT, 'db' => 'y'];\n",
+	'constant' => "<?php\n\$sql = ['user' => PHP_OS, 'db' => 'y'];\n",
+	'concatenation' => "<?php\n\$sql = ['user' => 'a' . 'b', 'db' => 'y'];\n",
+	'backticks' => "<?php\n\$sql = ['user' => `touch $marker`, 'db' => 'y'];\n",
+	'variable variable' => "<?php\n\$\$x = 'y';\n",
+	'include' => "<?php\ninclude '/etc/passwd';\n",
+	'eval in key' => "<?php\n\$sql[eval('return 1;')] = 'x';\n",
+	'object' => "<?php\n\$sql = new ArrayObject([]);\n",
+	'inline html' => "x<?php\n\$sql = [];\n",
+];
+foreach ($evil as $name => $code) {
+	$file = $write('evil.php', $code);
+	$refused = false;
+	try {
+		DbConfig::readUserdata($file);
+	} catch (RuntimeException $e) {
+		$refused = true;
+	}
+	$check("refused, not executed: $name", $refused && !file_exists($marker));
+}
+@symlink($froxlorFormat, $dir . '/link.php');
+$refused = false;
+try {
+	DbConfig::readUserdata($dir . '/link.php');
+} catch (RuntimeException $e) {
+	$refused = true;
+}
+$check('symlinked userdata.inc.php refused', $refused);
+
+array_map('unlink', glob($dir . '/*') ?: []);
+rmdir($dir);
+
+echo $failed === 0 ? "\nAll checks passed.\n" : "\n$failed check(s) failed.\n";
+exit($failed === 0 ? 0 : 1);

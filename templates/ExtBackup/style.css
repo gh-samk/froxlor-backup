@@ -1,0 +1,50 @@
+/*
+ * Styles of the Backup pages.
+ *
+ * Included through a <link> from style.html.twig, with this file's
+ * modification time as version. Two reasons for this route:
+ *
+ * - Froxlor mounts Vue on <body id="app"> and thereby compiles the whole page
+ *   as a template. Vue silently drops every <style> and <script> in the page
+ *   content. A <link> is left alone.
+ * - Froxlor sends no Cache-Control for static files. Without a changing URL,
+ *   browsers would keep the old version for days after an update.
+ *
+ * Deliberately not in templates/Froxlor/assets/css/custom.css: that file is
+ * Froxlor's hook for the admin's own adjustments.
+ *
+ * Colours come exclusively from Bootstrap's CSS variables (--bs-*), so the
+ * pages follow the light and dark variant of any theme by themselves.
+ */
+
+/* Boxes in one row equally high, so the grid does not fray. */
+.bk-box.h-100 > .list-group { flex: 1 1 auto; }
+
+/* Paths and database names would otherwise break the layout on narrow screens. */
+.bk-box code { overflow-wrap: anywhere; }
+
+/* Tables in boxes: Froxlor's cards have no inner padding, the cells would
+   stick to the card edge. Edge cells get the padding of the box heading,
+   all rows a little more air. */
+.bk-box .table > :not(caption) > * > * { padding-top: .65rem; padding-bottom: .65rem; }
+.bk-box .table > :not(caption) > * > *:first-child { padding-left: 1rem; }
+.bk-box .table > :not(caption) > * > *:last-child { padding-right: 1rem; }
+
+/* Do not put jump targets flush with the top edge. */
+.bk-box { scroll-margin-top: 1rem; }
+
+/* Metric tiles. Outline instead of border, because Froxlor's cards have no
+   border (card-border-width: 0) - a border-warning would stay invisible. */
+.bk-metric {
+	outline: 1px solid transparent;
+	outline-offset: -1px;
+	transition: outline-color .15s ease-out, box-shadow .15s ease-out, background-color .15s ease-out;
+}
+.bk-metric:hover { outline-color: rgba(var(--bs-primary-rgb), .55); }
+.bk-metric:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: 2px; }
+.bk-metric.border-warning { background-color: var(--bs-warning-bg-subtle); outline-color: var(--bs-warning-border-subtle); }
+.bk-metric.border-warning:hover { outline-color: var(--bs-warning); }
+
+@media (prefers-reduced-motion: reduce) {
+	.bk-metric, .bk-box .collapsing { transition: none; }
+}

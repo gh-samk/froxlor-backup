@@ -1,0 +1,323 @@
+{# Backup: overview, restore, history and setup in one template. Extends
+   Froxlor's page frame (the Twig loader is rooted in templates/). #}
+{% extends "Froxlor/userarea.html.twig" %}
+{% import "ExtBackup/macros.html.twig" as m %}
+
+{% block heading %}
+{# v-pre: Froxlor mounts Vue on <body id="app"> and evaluates the whole page as a template. #}
+<div v-pre>
+	<h5 class="mb-1">
+		<i class="fa-solid fa-cloud-arrow-up me-1" aria-hidden="true"></i>
+		{{ backup_t('Backup') }}
+	</h5>
+	<span class="text-body-secondary mt-2">{{ backup_t('Backups of all customers, encrypted and stored in a second location.') }}</span>
+</div>
+{% endblock %}
+
+{% block actions %}
+<div v-pre>
+	<ul class="nav nav-pills justify-content-end gap-1">
+		{% for entry in [
+			{'page': 'overview', 'text': backup_t('Overview'), 'icon': 'fa-solid fa-gauge'},
+			{'page': 'restore', 'text': backup_t('Restore'), 'icon': 'fa-solid fa-rotate-left'},
+			{'page': 'history', 'text': backup_t('History'), 'icon': 'fa-solid fa-clock-rotate-left'},
+			{'page': 'setup', 'text': backup_t('Setup'), 'icon': 'fa-solid fa-sliders'}
+		] %}
+			<li class="nav-item">
+				<a class="nav-link {{ current_page == entry.page ? 'active' }}" {{ current_page == entry.page ? 'aria-current="page"' }}
+				   href="{{ linker({'section': 'backup', 'page': entry.page}) }}">
+					<i class="{{ entry.icon }}" aria-hidden="true"></i><span class="d-none d-md-inline ms-1">{{ entry.text }}</span>
+				</a>
+			</li>
+		{% endfor %}
+	</ul>
+</div>
+{% endblock %}
+
+{% block content %}
+<div v-pre>
+	{% include "ExtBackup/style.html.twig" %}
+
+	{% if notice %}
+		<div class="alert alert-{{ notice.type == 'success' ? 'success' : 'warning' }} alert-dismissible fade show d-flex align-items-center gap-2" role="status">
+			<i class="fa-solid {{ notice.type == 'success' ? 'fa-circle-check' : 'fa-circle-info' }}" aria-hidden="true"></i>
+			<div>{{ notice.text }}</div>
+			<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="{{ backup_t('Close message') }}"></button>
+		</div>
+	{% endif %}
+
+	{% if not restic_installed %}
+		<div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+			<i class="fa-solid fa-triangle-exclamation mt-1" aria-hidden="true"></i>
+			<div><strong>{{ backup_t('restic is not installed.') }}</strong> {{ backup_t('The backup does not work without restic.') }}
+				{{ backup_t('On Debian:') }} <code>apt install restic</code>.</div>
+		</div>
+	{% endif %}
+
+	{# ================================================================= #}
+	{% if current_page == 'overview' %}
+
+		{% if not configured %}
+			<div class="card bk-box">
+				<div class="card-body py-5 text-center">
+					<i class="fa-solid fa-cloud-arrow-up fa-2x text-body-secondary mb-3" aria-hidden="true"></i>
+					<h6 class="fw-semibold">{{ backup_t('No storage target set up yet') }}</h6>
+					<p class="text-body-secondary mb-3">{{ backup_t('Set it up once, then everything runs on its own.') }}<br>
+						{{ backup_t('The target can be an S3 bucket or an SFTP server.') }}</p>
+					<a class="btn btn-primary" href="{{ linker({'section': 'backup', 'page': 'setup'}) }}">
+						<i class="fa-solid fa-sliders" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Set up now') }}</span>
+					</a>
+				</div>
+			</div>
+		{% else %}
+
+			{% if stale %}
+				<div class="alert alert-warning d-flex align-items-start gap-2" role="alert">
+					<i class="fa-solid fa-triangle-exclamation mt-1" aria-hidden="true"></i>
+					<div>
+						{% if stats.newest == 0 %}
+							<strong>{{ backup_t('There is no backup yet.') }}</strong>
+						{% else %}
+							<strong>{{ backup_t('The last backup is older than 26 hours') }}</strong> ({{ newest_age }}).
+						{% endif %}
+						{{ backup_t('Check “History” to see whether the latest backup jobs ran.') }}
+					</div>
+				</div>
+			{% endif %}
+
+			<div class="row row-cols-2 row-cols-lg-4 g-3 mb-4">
+				{% for tile in [
+					{'icon': 'fa-solid fa-clock', 'title': backup_t('Last backup'), 'value': newest_age, 'warn': stale, 'extra': stale ? backup_t('overdue') : ''},
+					{'icon': 'fa-solid fa-layer-group', 'title': backup_t('Stored restore points'), 'value': stats.count, 'warn': false, 'extra': ''},
+					{'icon': 'fa-solid fa-plug', 'title': backup_t('Storage target'), 'value': check_ok ? backup_t('reachable') : backup_t('not reachable'), 'warn': not check_ok, 'extra': backup_t('checked %s', check_age)},
+					{'icon': 'fa-solid fa-calendar-days', 'title': backup_t('Retention'), 'value': backup_t('%d days', retention_days), 'warn': false, 'extra': backup_t('%s and %s', times, nightly_time)}
+				] %}
+					<div class="col">
+						<div class="card h-100 bk-metric {{ tile.warn ? 'border-warning' }}">
+							<div class="card-body py-3">
+								<div class="small text-body-secondary d-flex align-items-center gap-2">
+									<i class="{{ tile.icon }}" aria-hidden="true"></i>{{ tile.title }}
+								</div>
+								<div class="fs-5 fw-semibold mt-1">{{ tile.value }}</div>
+								{% if tile.extra %}
+									<div class="small {{ tile.warn ? 'text-warning-emphasis' : 'text-body-secondary' }}">
+										{% if tile.warn %}<i class="fa-solid fa-triangle-exclamation me-1" aria-hidden="true"></i>{% endif %}{{ tile.extra }}
+									</div>
+								{% endif %}
+							</div>
+						</div>
+					</div>
+				{% endfor %}
+			</div>
+
+			<section class="card bk-box mb-4" id="bk-covered">
+				{{ m.header('fa-solid fa-shield-halved', backup_t('What is backed up'), covered|length) }}
+				{% if covered|length == 0 %}
+					<div class="list-group list-group-flush">{{ m.empty(backup_t('There are no customers yet.')) }}</div>
+				{% else %}
+					<div class="table-responsive">
+						<table class="table table-sm align-middle mb-0">
+							<thead>
+								<tr><th scope="col">{{ backup_t('Customer') }}</th><th scope="col">{{ backup_t('Projects') }}</th><th scope="col">{{ backup_t('Mailboxes') }}</th><th scope="col">{{ backup_t('Databases') }}</th><th scope="col">{{ backup_t('Latest restore point') }}</th><th scope="col"><span class="visually-hidden">{{ backup_t('Action') }}</span></th></tr>
+							</thead>
+							<tbody>
+								{% for c in covered %}
+									<tr>
+										<td><span class="fw-semibold">{{ c.name ?: c.login }}</span>{% if c.name %}<br><span class="small text-body-secondary">{{ c.login }}</span>{% endif %}</td>
+										<td>{{ c.projects }}</td>
+										<td>{{ c.mailboxes }}</td>
+										<td>{{ c.databases }}</td>
+										<td class="text-nowrap">{% if c.point %}{{ c.point }}{% else %}<span class="text-warning-emphasis"><i class="fa-solid fa-triangle-exclamation me-1" aria-hidden="true"></i>{{ backup_t('not backed up yet') }}</span>{% endif %}</td>
+										<td class="text-end">{% if c.point %}<a class="btn btn-sm btn-outline-secondary" href="{{ linker({'section': 'backup', 'page': 'restore', 'customer': c.login}) }}">{{ backup_t('Restore') }}</a>{% endif %}</td>
+									</tr>
+								{% endfor %}
+							</tbody>
+						</table>
+					</div>
+				{% endif %}
+				<div class="card-footer small text-body-secondary bg-body-tertiary">
+					{{ backup_t('Per customer: all websites, mailboxes and databases (each table separately, so parts can be restored too).') }}
+					{{ backup_t('In addition, at %s the server itself: panel settings, server configuration, certificates.', nightly_time) }}
+				</div>
+			</section>
+
+			<section class="card bk-box" id="bk-recent">
+				{{ m.header('fa-solid fa-clock-rotate-left', backup_t('Latest backups'), null) }}
+				{% if snapshots|length == 0 %}
+					<div class="list-group list-group-flush">
+						{{ m.empty(backup_t('No backups read yet. “History” shows whether reading is running.')) }}
+					</div>
+				{% else %}
+					<div class="table-responsive">
+						<table class="table table-sm align-middle mb-0">
+							<thead>
+								<tr><th scope="col">{{ backup_t('When') }}</th><th scope="col">{{ backup_t('Type') }}</th><th scope="col">{{ backup_t('What') }}</th></tr>
+							</thead>
+							<tbody>
+								{% for s in snapshots %}
+									<tr>
+										<td class="text-nowrap">{{ backup_t('%s', s.snapshot_time|date('d.m.Y H:i')) }}</td>
+										<td>{{ s.kind }}</td>
+										<td>{% if s.type == 'system' or s.customer == '_system' %}{{ backup_t('Server') }}{% else %}{{ s.customer ?: '—' }}{% endif %}</td>
+									</tr>
+								{% endfor %}
+							</tbody>
+						</table>
+					</div>
+				{% endif %}
+				<div class="card-footer bg-body-tertiary d-flex flex-wrap gap-2 justify-content-between align-items-center">
+					<span class="small text-body-secondary">{{ backup_t('Storage location: %s', target_label) }}</span>
+					<div class="d-flex gap-2">
+						{% for action in [{'name': 'backup', 'text': backup_t('Back up now'), 'icon': 'fa-solid fa-cloud-arrow-up'}, {'name': 'index', 'text': backup_t('Refresh list'), 'icon': 'fa-solid fa-rotate'}, {'name': 'check', 'text': backup_t('Check connection'), 'icon': 'fa-solid fa-plug'}] %}
+							<form method="post" action="{{ linker({'section': 'backup'}) }}">
+								<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+								<input type="hidden" name="page" value="overview">
+								<input type="hidden" name="action" value="{{ action.name }}">
+								<input type="hidden" name="send" value="send">
+								<button class="btn btn-sm btn-outline-secondary" type="submit">
+									<i class="{{ action.icon }}" aria-hidden="true"></i><span class="ms-1">{{ action.text }}</span>
+								</button>
+							</form>
+						{% endfor %}
+					</div>
+				</div>
+			</section>
+
+			<p class="small text-body-secondary mt-3 mb-0">
+				<i class="fa-solid fa-circle-info me-1" aria-hidden="true"></i>
+				{{ backup_t('Under “Restore” you can restore websites, mailboxes and databases (including single tables), individually or combined.') }}
+			</p>
+		{% endif %}
+
+	{# ================================================================= #}
+	{% elseif current_page == 'history' %}
+
+		{% if generated_password %}
+			<div class="card border-warning mb-4" role="alert">
+				<div class="card-body">
+					<h6 class="fw-semibold"><i class="fa-solid fa-key me-1" aria-hidden="true"></i>{{ backup_t('Emergency sheet: encryption password') }}</h6>
+					<p class="mb-2">{{ backup_t('This password is shown <strong>only once, right now</strong>. Without it the backups can no longer be opened, not even by the vendor. Please store it in your password manager immediately.')|raw }}</p>
+					<div class="p-3 rounded bg-body-tertiary font-monospace user-select-all text-break">{{ generated_password }}</div>
+				</div>
+			</div>
+		{% endif %}
+
+		<section class="card bk-box">
+			{{ m.header('fa-solid fa-clock-rotate-left', backup_t('Jobs'), jobs|length) }}
+			{% if jobs|length == 0 %}
+				<div class="list-group list-group-flush">{{ m.empty(backup_t('No jobs yet.')) }}</div>
+			{% else %}
+				<div class="list-group list-group-flush">
+					{% for j in jobs %}
+						<div class="list-group-item">
+							<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+								<div class="fw-semibold">{{ j.type_label }}</div>
+								<div class="d-flex align-items-center gap-2">
+									<span class="small text-body-secondary">{{ j.created_at|date('d.m.Y H:i') }} · {{ j.created_by }}</span>
+									{{ m.job_status(j.status) }}
+								</div>
+							</div>
+							{% if j.log %}
+								<pre class="small mb-0 mt-2 p-2 rounded bg-body-tertiary text-break" style="white-space: pre-wrap">{{ j.log }}</pre>
+							{% endif %}
+						</div>
+					{% endfor %}
+				</div>
+			{% endif %}
+		</section>
+
+	{# ================================================================= #}
+	{% elseif current_page == 'restore' %}
+		{% include "ExtBackup/restore.html.twig" %}
+
+	{# ================================================================= #}
+	{% else %}
+
+		{% if not configured %}
+			{% include "ExtBackup/setup-form.html.twig" %}
+		{% else %}
+			{% set td = target_details %}
+			<section class="card bk-box mb-4">
+				{{ m.header('fa-solid fa-cloud', backup_t('Current storage target'), null) }}
+				<div class="card-body">
+					<div class="row g-3">
+						<div class="col-12 col-lg-8">
+							<dl class="row mb-0">
+								<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Type') }}</dt>
+								<dd class="col-sm-8">{% if td.type|default('') == 'sftp' %}SFTP{% elseif td.type|default('') == 's3' %}{{ backup_t('S3 object storage') }}{% else %}—{% endif %}</dd>
+								{% if td.type|default('') == 'sftp' %}
+									<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Host') }}</dt>
+									<dd class="col-sm-8">{{ td.host }}</dd>
+									<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Path') }}</dt>
+									<dd class="col-sm-8">{{ td.path }}</dd>
+								{% elseif td.type|default('') == 's3' %}
+									<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Endpoint') }}</dt>
+									<dd class="col-sm-8">{{ td.endpoint }}</dd>
+									<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Bucket') }}</dt>
+									<dd class="col-sm-8">{{ td.bucket }}{% if td.folder %} <span class="text-body-secondary">/ {{ td.folder }}</span>{% endif %}</dd>
+									{% if td.region %}
+										<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Region') }}</dt>
+										<dd class="col-sm-8">{{ td.region }}</dd>
+									{% endif %}
+								{% else %}
+									<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Target') }}</dt>
+									<dd class="col-sm-8">{{ target_label }}</dd>
+								{% endif %}
+								<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Credentials') }}</dt>
+								<dd class="col-sm-8">{{ backup_t('stored on the server') }} <span class="text-body-secondary">{{ backup_t('(root only, never shown here)') }}</span></dd>
+								<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Encryption') }}</dt>
+								<dd class="col-sm-8">{{ backup_t('Password stored on the server') }}</dd>
+								<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Connection') }}</dt>
+								<dd class="col-sm-8">{{ m.status(check_ok, check_ok ? backup_t('reachable') : backup_t('not reachable')) }} <span class="small text-body-secondary ms-1">{{ backup_t('checked %s', check_age) }}</span></dd>
+								<dt class="col-sm-4 text-body-secondary fw-normal">{{ backup_t('Schedule') }}</dt>
+								<dd class="col-sm-8">{{ backup_t('%s and %s, kept for %d days', times, nightly_time, retention_days) }}
+									<span class="small text-body-secondary d-block">{{ backup_t('Can be changed under Settings › Backup.') }}</span></dd>
+							</dl>
+						</div>
+						<div class="col-12 col-lg-4 d-flex flex-lg-column gap-2 align-items-lg-end">
+							<form method="post" action="{{ linker({'section': 'backup'}) }}">
+								<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+								<input type="hidden" name="page" value="setup">
+								<input type="hidden" name="action" value="check">
+								<input type="hidden" name="send" value="send">
+								<button class="btn btn-outline-secondary" type="submit"><i class="fa-solid fa-plug" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Check connection') }}</span></button>
+							</form>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<details class="card bk-box mb-4">
+				<summary class="card-header bg-body-tertiary fw-semibold" style="cursor: pointer"><i class="fa-solid fa-pen me-2 text-body-secondary" aria-hidden="true"></i>{{ backup_t('Change credentials or target') }}</summary>
+				<div class="card-body">
+					<p class="small text-body-secondary">{{ backup_t('Enter new access keys or a different storage location. With the same location and “Keep password”, all existing backups remain usable. A new location gets a new, empty repository with a new password.') }}</p>
+					{% include "ExtBackup/setup-form.html.twig" %}
+				</div>
+			</details>
+
+			<section class="card bk-box border-danger-subtle">
+				{{ m.header('fa-solid fa-trash-can', backup_t('Remove storage target'), null) }}
+				<form method="post" action="{{ linker({'section': 'backup'}) }}" class="card-body">
+					<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+					<input type="hidden" name="page" value="setup">
+					<input type="hidden" name="action" value="remove">
+					<input type="hidden" name="send" value="send">
+					<p class="small mb-2">{{ backup_t('Deletes the credentials and the encryption password <strong>from the server</strong> and stops the scheduled backups. The backups in the storage itself remain, but <strong>cannot be opened without the password</strong>.')|raw }}</p>
+					<div class="form-check mb-3">
+						<input class="form-check-input" type="checkbox" name="password_saved" id="bk-password-saved" value="1" required>
+						<label class="form-check-label" for="bk-password-saved">{{ backup_t('The encryption password is stored elsewhere (e.g. in a password manager)') }}</label>
+					</div>
+					<div class="d-flex flex-wrap align-items-end gap-3">
+						<div>
+							<label class="form-label small mb-1" for="bk-remove-confirm">{{ backup_t('Type <code>%s</code> to confirm', backup_t('remove'))|raw }}</label>
+							<input class="form-control" id="bk-remove-confirm" name="confirmation" autocomplete="off" required>
+						</div>
+						<button class="btn btn-danger" type="submit"><i class="fa-solid fa-trash-can" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Remove storage target') }}</span></button>
+					</div>
+				</form>
+			</section>
+		{% endif %}
+
+	{% endif %}
+</div>
+{% endblock %}

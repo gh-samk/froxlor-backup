@@ -1,0 +1,92 @@
+{# Form to set up or change the storage target. Included from page.html.twig. #}
+{% import "ExtBackup/macros.html.twig" as m %}
+<form method="post" action="{{ linker({'section': 'backup'}) }}" class="row g-4">
+	<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+	<input type="hidden" name="page" value="setup">
+	<input type="hidden" name="action" value="setup">
+	<input type="hidden" name="send" value="send">
+
+	<div class="col-12 col-xl-6">
+		<section class="card bk-box h-100">
+			{{ m.header('fa-solid fa-cloud', backup_t('Storage target'), null) }}
+			<div class="card-body">
+				<fieldset class="mb-3">
+					<legend class="fs-6 fw-semibold">{{ backup_t('S3-compatible object storage') }}</legend>
+					<div class="row g-2">
+						<div class="col-12 col-md-8">
+							<label class="form-label small" for="bk-s3-endpoint">{{ backup_t('Endpoint') }}</label>
+							<input class="form-control" id="bk-s3-endpoint" name="s3[endpoint]" value="{{ target_details.endpoint|default('') }}" placeholder="s3.example.com" autocomplete="off">
+						</div>
+						<div class="col-12 col-md-4">
+							<label class="form-label small" for="bk-s3-region">{{ backup_t('Region (optional)') }}</label>
+							<input class="form-control" id="bk-s3-region" name="s3[region]" value="{{ target_details.region|default('') }}" placeholder="eu-central-1" autocomplete="off">
+						</div>
+						<div class="col-12 col-md-6">
+							<label class="form-label small" for="bk-s3-bucket">{{ backup_t('Bucket') }}</label>
+							<input class="form-control" id="bk-s3-bucket" name="s3[bucket]" value="{{ target_details.bucket|default('') }}" autocomplete="off">
+						</div>
+						<div class="col-12 col-md-6">
+							<label class="form-label small" for="bk-s3-folder">{{ backup_t('Folder in the bucket (optional)') }}</label>
+							<input class="form-control" id="bk-s3-folder" name="s3[folder]" value="{{ target_details.folder|default('') }}" placeholder="server1" autocomplete="off">
+						</div>
+						<div class="col-12 col-md-6">
+							<label class="form-label small" for="bk-s3-access-key">{{ backup_t('Access key') }}</label>
+							<input class="form-control" id="bk-s3-access-key" name="s3[access_key]" autocomplete="off">
+						</div>
+						<div class="col-12 col-md-6">
+							<label class="form-label small" for="bk-s3-secret-key">{{ backup_t('Secret key') }}</label>
+							<input class="form-control" id="bk-s3-secret-key" name="s3[secret_key]" type="password" autocomplete="new-password">
+						</div>
+					</div>
+				</fieldset>
+
+				<details class="mt-4">
+					<summary class="fw-semibold">{{ backup_t('Use SFTP instead (e.g. a storage box)') }}</summary>
+					<div class="form-check mt-3">
+						<input class="form-check-input" type="checkbox" name="use_sftp" id="bk-use-sftp" value="1" {{ target_details.type|default('') == 'sftp' ? 'checked' }}>
+						<label class="form-check-label" for="bk-use-sftp">{{ backup_t('Use SFTP instead of S3') }}</label>
+					</div>
+					<div class="row g-2 mt-1">
+						<div class="col-12 col-md-5">
+							<label class="form-label small" for="bk-sftp-host">{{ backup_t('Host from /root/.ssh/config') }}</label>
+							<input class="form-control" id="bk-sftp-host" name="sftp[host]" value="{{ target_details.host|default('') }}" placeholder="backup-host" autocomplete="off">
+						</div>
+						<div class="col-12 col-md-7">
+							<label class="form-label small" for="bk-sftp-path">{{ backup_t('Path on the target server') }}</label>
+							<input class="form-control" id="bk-sftp-path" name="sftp[path]" value="{{ target_details.path|default('') }}" placeholder="restic-repo" autocomplete="off">
+						</div>
+					</div>
+					<div class="form-text">{{ backup_t('The key and port are set in the server\'s SSH entry, not here. One storage location is enough.') }}</div>
+				</details>
+			</div>
+		</section>
+	</div>
+
+	<div class="col-12 col-xl-6">
+		<section class="card bk-box h-100">
+			{{ m.header('fa-solid fa-key', backup_t('Encryption'), null) }}
+			<div class="card-body">
+				<p class="small text-body-secondary">{{ backup_t('All backups are encrypted before they leave the server. The password is stored only on the server (root only) and is never shown here again.') }}</p>
+
+				<div class="mb-3">
+					<label class="form-label" for="bk-password">{{ backup_t('Password') }}</label>
+					<input class="form-control" id="bk-password" name="password" type="password" autocomplete="new-password" aria-describedby="bk-password-help">
+					<div class="form-text" id="bk-password-help">{{ backup_t('Leave empty: a strong password is generated and shown once (or the current one is kept, see below). To open an existing repository (e.g. your current restic backup), use its existing password.') }}</div>
+				</div>
+
+				{% if configured %}
+					<input type="hidden" name="replace" value="1">
+					<div class="form-check mb-3">
+						<input class="form-check-input" type="checkbox" name="keep_password" id="bk-keep-password" value="1" checked>
+						<label class="form-check-label" for="bk-keep-password">{{ backup_t('Keep the current password and repository') }} <span class="text-body-secondary">{{ backup_t('(only change the credentials; leave the password field empty)') }}</span></label>
+					</div>
+				{% endif %}
+
+				<button class="btn btn-primary" type="submit">
+					<i class="fa-solid fa-plug-circle-check" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Connect and set up') }}</span>
+				</button>
+				<p class="small text-body-secondary mt-3 mb-0">{{ backup_t('The server checks the connection within a minute. If the target has no repository yet, it creates one; an existing one is adopted. The result appears under “History”.') }}</p>
+			</div>
+		</section>
+	</div>
+</form>

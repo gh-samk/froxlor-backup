@@ -1,0 +1,45 @@
+{# Building blocks of the Backup pages. #}
+
+{# Empty state: says what is missing instead of leaving the box silently empty. #}
+{% macro empty(text) %}
+	<div class="list-group-item text-body-secondary small py-3">{{ text }}</div>
+{% endmacro %}
+
+{#
+	Header line of a box. The heading is a real h6, so screen readers can
+	jump between the boxes as sections.
+#}
+{% macro header(icon, title, count) %}
+	<div class="card-header bg-body-tertiary d-flex justify-content-between align-items-center gap-2">
+		<h6 class="mb-0 fw-semibold d-flex align-items-center gap-2">
+			<i class="{{ icon }} text-body-secondary" aria-hidden="true"></i>{{ title }}
+			{% if count is not null %}
+				<span class="badge rounded-pill text-bg-secondary">{{ count }}</span>
+			{% endif %}
+		</h6>
+	</div>
+{% endmacro %}
+
+{# Status badge: always icon and text, never colour alone. #}
+{% macro status(on, text) %}
+	{% if on %}
+		<span class="badge bg-success-subtle text-success-emphasis border border-success-subtle fw-normal">
+			<i class="fa-solid fa-check me-1" aria-hidden="true"></i>{{ text }}
+		</span>
+	{% else %}
+		<span class="badge bg-body-secondary text-body-secondary border fw-normal">
+			<i class="fa-solid fa-minus me-1" aria-hidden="true"></i>{{ text }}
+		</span>
+	{% endif %}
+{% endmacro %}
+
+{# Status of a job: done, done with warnings, failed, running or waiting. #}
+{% macro job_status(status) %}
+	{% if status == 'warning' %}
+		<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle fw-normal">
+			<i class="fa-solid fa-triangle-exclamation me-1" aria-hidden="true"></i>{{ backup_t('done with warnings') }}
+		</span>
+	{% else %}
+		{{ _self.status(status == 'done', status == 'done' ? backup_t('done') : (status == 'failed' ? backup_t('failed') : (status == 'running' ? backup_t('running') : backup_t('waiting')))) }}
+	{% endif %}
+{% endmacro %}

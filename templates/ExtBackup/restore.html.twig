@@ -1,0 +1,314 @@
+{# Restore: choose a customer, then tick per project what should come back
+   (website, mailboxes, databases), choose a point, preview, confirm.
+   Included from page.html.twig (variables and the v-pre wrapper come from there). #}
+{% import "ExtBackup/macros.html.twig" as m %}
+
+{% if restore.system is not null %}
+	{% set sy = restore.system %}
+	<nav aria-label="{{ backup_t('Breadcrumb') }}">
+		<ol class="breadcrumb small mb-3">
+			<li class="breadcrumb-item"><a href="{{ linker({'section': 'backup', 'page': 'restore'}) }}">{{ backup_t('Restore') }}</a></li>
+			<li class="breadcrumb-item active" aria-current="page">{{ backup_t('Server settings') }}</li>
+		</ol>
+	</nav>
+
+	{% if sy.jobs|length > 0 %}
+		<section class="card bk-box mb-4">
+			{{ m.header('fa-solid fa-list-check', backup_t('Recent operations'), null) }}
+			<div class="list-group list-group-flush">
+				{% for j in sy.jobs %}
+					<div class="list-group-item">
+						<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+							<span class="fw-semibold">{{ j.type_label }}</span>
+							<div class="d-flex align-items-center gap-2">
+								<span class="small text-body-secondary">{{ j.created_at|date('d.m.Y H:i') }}</span>
+								{{ m.job_status(j.status) }}
+							</div>
+						</div>
+						{% if j.log %}
+							<pre class="small mb-0 mt-2 p-2 rounded bg-body-tertiary text-break" style="white-space: pre-wrap">{{ j.log }}</pre>
+						{% endif %}
+						{% if j.confirmable %}
+							<form method="post" action="{{ linker({'section': 'backup'}) }}" class="mt-3 d-flex flex-wrap align-items-end gap-3">
+								<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+								<input type="hidden" name="action" value="restore">
+								<input type="hidden" name="send" value="send">
+								<input type="hidden" name="customer" value="_system">
+								<input type="hidden" name="job" value="{{ j.id }}">
+								<div>
+									<label class="form-label small mb-1" for="bk-confirm-sys">{{ backup_t('Type <code>%s</code> to confirm', backup_t('settings'))|raw }}</label>
+									<input class="form-control" id="bk-confirm-sys" name="confirmation" autocomplete="off" required>
+								</div>
+								<button class="btn btn-danger" type="submit"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Restore now') }}</span></button>
+							</form>
+						{% endif %}
+					</div>
+				{% endfor %}
+			</div>
+		</section>
+	{% endif %}
+
+	<section class="card bk-box">
+		{{ m.header('fa-solid fa-sliders', backup_t('Restore server settings'), null) }}
+		{% if sy.points|length == 0 %}
+			<div class="list-group list-group-flush">{{ m.empty(backup_t('There is no backup of the server yet. It is created by the nightly backup.')) }}</div>
+		{% else %}
+			<form method="post" action="{{ linker({'section': 'backup'}) }}" class="card-body">
+				<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+				<input type="hidden" name="action" value="preview">
+				<input type="hidden" name="send" value="send">
+				<input type="hidden" name="customer" value="_system">
+				<p class="small text-body-secondary">{{ backup_t('Shows which panel settings have changed since the selected restore point and resets them. Versions, counters and the settings of this extension are left untouched. Froxlor then rewrites the server configuration.') }}</p>
+				<label class="form-label fw-semibold" for="bk-point-sys">{{ backup_t('From when?') }}</label>
+				<select class="form-select mb-3" id="bk-point-sys" name="snapshot" required>
+					{% for pt in sy.points %}<option value="{{ pt.snapshot_id }}">{{ pt.label }}</option>{% endfor %}
+				</select>
+				<button class="btn btn-primary" type="submit"><i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Create preview') }}</span></button>
+				<span class="small text-body-secondary ms-2">{{ backup_t('Nothing is changed yet.') }}</span>
+			</form>
+		{% endif %}
+	</section>
+
+{% elseif restore.customer is null %}
+
+	<section class="card bk-box">
+		{{ m.header('fa-solid fa-users', backup_t('Whose data should be restored?'), restore.customers|length) }}
+		{% if not configured %}
+			<div class="list-group list-group-flush">{{ m.empty(backup_t('Set up a storage target first, then there will be something to restore.')) }}</div>
+		{% elseif restore.customers|length == 0 %}
+			<div class="list-group list-group-flush">{{ m.empty(backup_t('No customer backups yet. They appear after the first backup.')) }}</div>
+		{% else %}
+			<div class="list-group list-group-flush">
+				{% for c in restore.customers %}
+					<a class="list-group-item list-group-item-action d-flex flex-wrap justify-content-between align-items-center gap-2"
+					   href="{{ linker({'section': 'backup', 'page': 'restore', 'customer': c.customer}) }}">
+						<span class="fw-semibold">{{ c.customer }}</span>
+						<span class="small text-body-secondary">{{ backup_t('latest restore point %s', c.newest|date('d.m.Y H:i')) }}
+							<i class="fa-solid fa-chevron-right ms-2" aria-hidden="true"></i></span>
+					</a>
+				{% endfor %}
+				<a class="list-group-item list-group-item-action d-flex flex-wrap justify-content-between align-items-center gap-2"
+				   href="{{ linker({'section': 'backup', 'page': 'restore', 'view': 'settings'}) }}">
+					<span class="fw-semibold"><i class="fa-solid fa-sliders me-1 text-body-secondary" aria-hidden="true"></i>{{ backup_t('Server settings') }}</span>
+					<span class="small text-body-secondary">{{ backup_t('Panel settings') }} <i class="fa-solid fa-chevron-right ms-2" aria-hidden="true"></i></span>
+				</a>
+			</div>
+		{% endif %}
+	</section>
+
+{% else %}
+	{% set cu = restore.customer %}
+
+	<nav aria-label="{{ backup_t('Breadcrumb') }}">
+		<ol class="breadcrumb small mb-3">
+			<li class="breadcrumb-item"><a href="{{ linker({'section': 'backup', 'page': 'restore'}) }}">{{ backup_t('Restore') }}</a></li>
+			<li class="breadcrumb-item active" aria-current="page">{{ cu.name ?: cu.login }}</li>
+		</ol>
+	</nav>
+
+	{# ---- Recent operations, newest first ---- #}
+	{% if cu.jobs|length > 0 %}
+		<section class="card bk-box mb-4">
+			{{ m.header('fa-solid fa-list-check', backup_t('Recent operations'), null) }}
+			<div class="list-group list-group-flush">
+				{% for j in cu.jobs %}
+					{% set p = j.params %}
+					<div class="list-group-item">
+						<div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+							<div>
+								<span class="fw-semibold">{{ j.type_label }}</span>
+								<span class="text-body-secondary small ms-1">{{ j.summary }} · {{ p.mode|default('') == 'copy' ? backup_t('as a copy') : backup_t('in place') }}</span>
+							</div>
+							<div class="d-flex align-items-center gap-2">
+								<span class="small text-body-secondary">{{ j.created_at|date('d.m.Y H:i') }}</span>
+								{{ m.job_status(j.status) }}
+							</div>
+						</div>
+						{% if j.log %}
+							<pre class="small mb-0 mt-2 p-2 rounded bg-body-tertiary text-break" style="white-space: pre-wrap">{{ j.log }}</pre>
+						{% endif %}
+
+						{% if j.confirmable %}
+							<form method="post" action="{{ linker({'section': 'backup'}) }}" class="mt-3 d-flex flex-wrap align-items-end gap-3">
+								<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+								<input type="hidden" name="action" value="restore">
+								<input type="hidden" name="send" value="send">
+								<input type="hidden" name="customer" value="{{ cu.login }}">
+								<input type="hidden" name="job" value="{{ j.id }}">
+								{% if p.mode|default('') != 'copy' %}
+									<div>
+										<label class="form-label small mb-1" for="bk-confirm-{{ j.id }}">{{ backup_t('To confirm, type the customer name:') }} <code>{{ cu.login }}</code></label>
+										<input class="form-control" id="bk-confirm-{{ j.id }}" name="confirmation" autocomplete="off" required>
+									</div>
+								{% endif %}
+								<button class="btn btn-danger" type="submit">
+									<i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Restore now') }}</span>
+								</button>
+							</form>
+						{% endif %}
+					</div>
+				{% endfor %}
+			</div>
+		</section>
+	{% endif %}
+
+	{# ---- New restore ---- #}
+	<form method="post" action="{{ linker({'section': 'backup'}) }}">
+		<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+		<input type="hidden" name="action" value="preview">
+		<input type="hidden" name="send" value="send">
+		<input type="hidden" name="customer" value="{{ cu.login }}">
+
+		<section class="card bk-box mb-4">
+			{{ m.header('fa-solid fa-rotate-left', backup_t('What should be restored?'), null) }}
+			{% if cu.points|length == 0 %}
+				<div class="list-group list-group-flush">{{ m.empty(backup_t('There is no backup for this customer yet.')) }}</div>
+			{% else %}
+				<div class="card-body">
+					<p class="text-body-secondary small mb-3">{{ backup_t('Select what you want to restore, for example only the website and the mailboxes, or just one database.') }}</p>
+
+					{% for pr in cu.projects %}
+						{% set sel = preselect.project == pr.id ? preselect.scope : '' %}
+						<fieldset class="mb-4">
+							<legend class="fs-6 fw-semibold mb-2"><i class="fa-solid fa-diagram-project me-1 text-body-secondary" aria-hidden="true"></i>{{ pr.name }}</legend>
+							<div class="row g-3">
+								<div class="col-12 col-lg-4">
+									<div class="small text-body-secondary mb-1">{{ backup_t('Website') }}</div>
+									{% for site in pr.websites %}
+										<div class="form-check">
+											<input class="form-check-input" type="checkbox" name="web[]" value="{{ site.id }}" id="bk-web-{{ site.id }}" {{ sel in ['all', 'web'] ? 'checked' }}>
+											<label class="form-check-label" for="bk-web-{{ site.id }}">{{ site.name }}{% if not site.main %} <span class="text-body-secondary">{{ backup_t('(subdomain)') }}</span>{% endif %}</label>
+										</div>
+									{% endfor %}
+								</div>
+								<div class="col-12 col-lg-4">
+									<div class="small text-body-secondary mb-1">{{ backup_t('Email mailboxes') }}</div>
+									{% for mb in pr.mailboxes %}
+										<div class="form-check">
+											<input class="form-check-input" type="checkbox" name="mail[]" value="{{ mb.id }}" id="bk-mail-{{ mb.id }}" {{ sel in ['all', 'mail'] ? 'checked' }}>
+											<label class="form-check-label" for="bk-mail-{{ mb.id }}">{{ mb.email }}</label>
+										</div>
+									{% else %}
+										<span class="small text-body-secondary">{{ backup_t('none') }}</span>
+									{% endfor %}
+								</div>
+								<div class="col-12 col-lg-4">
+									<div class="small text-body-secondary mb-1">{{ backup_t('Databases') }}</div>
+									{% for db in pr.databases %}
+										<div class="form-check">
+											<input class="form-check-input" type="checkbox" name="db[]" value="{{ db }}" id="bk-db-{{ db }}" {{ sel in ['all', 'db'] ? 'checked' }}>
+											<label class="form-check-label" for="bk-db-{{ db }}">{{ db }}</label>
+										</div>
+									{% else %}
+										<span class="small text-body-secondary">{{ backup_t('none assigned') }}</span>
+									{% endfor %}
+								</div>
+							</div>
+						</fieldset>
+					{% endfor %}
+
+					{% if cu.unassigned.mailboxes|length > 0 or cu.unassigned.databases|length > 0 %}
+						<fieldset class="mb-4">
+							<legend class="fs-6 fw-semibold mb-2"><i class="fa-solid fa-link-slash me-1 text-body-secondary" aria-hidden="true"></i>{{ backup_t('Without a project') }}</legend>
+							<div class="row g-3">
+								<div class="col-12 col-lg-4 offset-lg-4">
+									{% for mb in cu.unassigned.mailboxes %}
+										<div class="form-check">
+											<input class="form-check-input" type="checkbox" name="mail[]" value="{{ mb.id }}" id="bk-mail-{{ mb.id }}">
+											<label class="form-check-label" for="bk-mail-{{ mb.id }}">{{ mb.email }}</label>
+										</div>
+									{% endfor %}
+								</div>
+								<div class="col-12 col-lg-4">
+									{% for db in cu.unassigned.databases %}
+										<div class="form-check">
+											<input class="form-check-input" type="checkbox" name="db[]" value="{{ db }}" id="bk-db-{{ db }}">
+											<label class="form-check-label" for="bk-db-{{ db }}">{{ db }}</label>
+										</div>
+									{% endfor %}
+								</div>
+							</div>
+						</fieldset>
+					{% endif %}
+
+					<details class="mb-4">
+						<summary class="small fw-semibold">{{ backup_t('Only a specific folder or a single table') }}</summary>
+						<div class="row g-3 mt-1">
+							<div class="col-12 col-lg-6">
+								<label class="form-label small" for="bk-path">{{ backup_t('Folder or file within the website') }}</label>
+								<input class="form-control" id="bk-path" name="path" placeholder="wp-content/themes" autocomplete="off">
+								<div class="form-text">{{ backup_t('Only applies if exactly one website is selected.') }}</div>
+							</div>
+							<div class="col-12 col-lg-6">
+								<label class="form-label small" for="bk-table">{{ backup_t('Only this table') }}</label>
+								<input class="form-control" id="bk-table" name="table" placeholder="wp_options" autocomplete="off">
+								<div class="form-text">{{ backup_t('Only applies if exactly one database is selected.') }}</div>
+							</div>
+						</div>
+					</details>
+
+					<div class="row g-4">
+						<div class="col-12 col-lg-6">
+							<label class="form-label fw-semibold" for="bk-point">{{ backup_t('From when?') }}</label>
+							<select class="form-select" id="bk-point" name="snapshot" required>
+								{% for pt in cu.points %}
+									<option value="{{ pt.snapshot_id }}">{{ pt.label }}</option>
+								{% endfor %}
+							</select>
+							<div class="form-text">{{ backup_t('The newest restore point is at the top.') }}</div>
+						</div>
+						<fieldset class="col-12 col-lg-6">
+							<legend class="form-label fw-semibold fs-6">{{ backup_t('How?') }}</legend>
+							<div class="form-check">
+								<input class="form-check-input" type="radio" name="mode" id="bk-mode-in-place" value="in_place" checked>
+								<label class="form-check-label" for="bk-mode-in-place">{{ backup_t('In place') }} <span class="text-body-secondary">{{ backup_t('(overwrites the current state)') }}</span></label>
+							</div>
+							<div class="form-check ms-4">
+								<input class="form-check-input" type="checkbox" name="save_before" id="bk-save-before" value="1" checked>
+								<label class="form-check-label" for="bk-save-before">{{ backup_t('Back up the current state first') }} <span class="text-body-secondary">{{ backup_t('(makes “Undo” possible, uses hardly any disk space)') }}</span></label>
+							</div>
+							<div class="form-check">
+								<input class="form-check-input" type="radio" name="mode" id="bk-mode-copy" value="copy">
+								<label class="form-check-label" for="bk-mode-copy">{{ backup_t('Save as a copy') }} <span class="text-body-secondary">{{ backup_t('(nothing is overwritten)') }}</span></label>
+								<div class="form-text">{{ backup_t('Website copies are stored outside every website directory (restore/<customer>/ next to the web directories), so they are never served over the web. Mailbox copies go to _restored/ in the mail directory, database copies to <name>_restore.') }}</div>
+							</div>
+						</fieldset>
+					</div>
+				</div>
+				<div class="card-footer bg-body-tertiary">
+					<button class="btn btn-primary" type="submit">
+						<i class="fa-solid fa-magnifying-glass" aria-hidden="true"></i><span class="ms-1">{{ backup_t('Create preview') }}</span>
+					</button>
+					<span class="small text-body-secondary ms-2">{{ backup_t('Nothing is changed yet.') }}</span>
+				</div>
+			{% endif %}
+		</section>
+	</form>
+
+	{# ---- Undo ---- #}
+	{% if cu.undo|length > 0 %}
+		<section class="card bk-box">
+			{{ m.header('fa-solid fa-clock-rotate-left', backup_t('Undo'), null) }}
+			<div class="list-group list-group-flush">
+				{% for u in cu.undo %}
+					<div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+						<div>
+							<span class="fw-semibold">{{ backup_t('Restore point from %s', u.label) }}</span>
+							<span class="small text-body-secondary text-break ms-1">{{ u.paths|join(', ') }}</span>
+						</div>
+						<form method="post" action="{{ linker({'section': 'backup'}) }}" class="d-flex flex-wrap align-items-center gap-2">
+							<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+							<input type="hidden" name="action" value="undo">
+							<input type="hidden" name="send" value="send">
+							<input type="hidden" name="customer" value="{{ cu.login }}">
+							<input type="hidden" name="snapshot" value="{{ u.snapshot_id }}">
+							<input class="form-control form-control-sm" style="width: 12rem" name="confirmation" placeholder="{{ cu.login }}" aria-label="{{ backup_t('Customer name to confirm') }}" autocomplete="off" required>
+							<button class="btn btn-sm btn-outline-danger" type="submit">{{ backup_t('Restore this restore point') }}</button>
+						</form>
+					</div>
+				{% endfor %}
+			</div>
+			<div class="card-footer small text-body-secondary bg-body-tertiary">{{ backup_t('Files created after this restore point are left in place.') }}</div>
+		</section>
+	{% endif %}
+{% endif %}
