@@ -350,43 +350,7 @@ applies; job logs are stored in that language.
 Froxlor's own language files stay untouched. The class `Lang` brings its own
 catalog: the English source text is the key (`Lang::t('Text')` in PHP,
 `{{ backup_t('Text') }}` in Twig), German is in
-`lib/Froxlor/Ext/Backup/lang/de.php`. `tests/lang.php` reports every text
-without a German entry and mismatched placeholders.
-
-## Tests
-
-Without any setup:
-
-```bash
-php tests/schedule.php                  # schedule: due slots, catch-up window, midnight
-php tests/target.php                    # storage target validation
-php tests/db-config.php                 # userdata.inc.php: parsed not executed; socket/host/port/TLS like Froxlor
-php tests/project-assignments.php       # optional Project View hook: stub providers, malformed data
-php tests/project-view-integration.php  # the contract other extensions rely on
-php tests/lang.php                      # every text has a German entry
-```
-
-With a Froxlor installation (only reads its `vendor/`):
-
-```bash
-php tests/twig-syntax.php /var/www/froxlor   # parses all templates with Froxlor's Twig
-```
-
-With Docker - a throwaway Debian container with restic and MariaDB that
-backs up and restores against the real programs (customer and system
-snapshots, tags, exclusions, symlink refusal, hostile table names, cleanup,
-file/folder/database restores, DEFINER handling, copies, undo, pre-restore
-points, settings read-back, isolation of customer processes):
-
-```bash
-tests/backup-restore.sh
-```
-
-It never touches the host or other containers. To try the pages in a real
-panel, set up a disposable Froxlor 2.3 (for example the official
-installation in a Debian VM or container with MariaDB), install the
-extension with `./install.sh`, and create a test customer with a domain, a
-mailbox and a database.
+`lib/Froxlor/Ext/Backup/lang/de.php`.
 
 ## Layout
 
@@ -413,7 +377,6 @@ lib/Froxlor/Ext/Backup/
 templates/ExtBackup/                   Twig templates and stylesheet
 migrations/                            apply.php, remove.php, connection.php, 001_backup.php
 scripts/privileges.sh                  privilege drop and path checks for install/uninstall
-tests/
 ```
 
 Data:
