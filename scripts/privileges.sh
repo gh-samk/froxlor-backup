@@ -74,6 +74,9 @@ drop_to() {
 	fi
 	(
 		close_extra_fds
+		# Never start the new user in the caller's directory (usually /root): it
+		# cannot enter it, and tools like find fail on their initial directory.
+		cd / || exit 1
 		exec setsid --wait setpriv --reuid="$uid" --regid="$gid" --init-groups --reset-env -- "$@"
 	) 2>&1 | sanitize_output
 }
