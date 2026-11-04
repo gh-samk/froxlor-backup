@@ -275,6 +275,7 @@ return [
 	'The current state could not be backed up; nothing was changed: %s' => 'Der heutige Stand liess sich nicht sichern, es wurde nichts veraendert: %s',
 	'The current state is backed up first; files that exist only today are kept.' => 'Vorher wird der heutige Stand gesichert; Dateien, die es nur heute gibt, bleiben liegen.',
 	'The current state is backed up first; the tables are replaced.' => 'Vorher wird der heutige Stand gesichert; die Tabellen werden ersetzt.',
+	'The target changed during the backup; nothing was changed.' => 'Das Ziel hat sich waehrend der Sicherung veraendert, es wurde nichts veraendert.',
 	'The current state is NOT backed up; files that exist only today are kept.' => 'Der heutige Stand wird NICHT gesichert; Dateien, die es nur heute gibt, bleiben liegen.',
 	'The customer\'s web directory does not exist.' => 'Das Webverzeichnis des Kunden gibt es nicht.',
 	'The database client could not be started.' => 'Der Datenbank-Client liess sich nicht starten.',

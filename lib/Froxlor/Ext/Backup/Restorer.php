@@ -230,7 +230,7 @@ class Restorer
 
 		$lines = [];
 		if ($a['mode'] === RestoreJob::MODE_IN_PLACE && ($a['save_before'] ?? true) && (file_exists($a['target']) || is_link($a['target']))) {
-			$this->saveBefore([$a['target']], $a['login']);
+			$this->saveBeforeTarget($a['target'], $a['root'], $a['login']);
 			$lines[] = Lang::t('Current state backed up (restore point "pre-restore").');
 		}
 
@@ -432,6 +432,44 @@ class Restorer
 		if ($code !== 0 && $code !== Snapshotter::EXIT_PARTIAL) {
 			throw new RuntimeException(Lang::t('The current state could not be backed up; nothing was changed: %s', trim(Restic::redact($err))));
 		}
+	}
+
+	/**
+	 * Like saveBefore() for a path in a customer's tree, which the customer can
+	 * change while root reads it. Root therefore backs up the path with all
+	 * directories above it already resolved (restic itself never follows a link
+	 * inside the tree), and afterwards checks that the directory above still
+	 * resolves to the same place inside the allowed root. If it does not, the
+	 * customer swapped a directory for a link during the backup: the new
+	 * snapshot is deleted again before anyone can restore it, and the restore
+	 * stops before anything has been overwritten.
+	 */
+	private function saveBeforeTarget(string $target, string $root, string $login): void
+	{
+		$parent = realpath(dirname($target));
+		if ($parent === false) {
+			throw new RuntimeException(Lang::t('The target %s is outside %s.', $target, $root));
+		}
+		$this->checkTarget($parent . '/' . basename($target), $root);
+		$path = $parent . '/' . basename($target);
+
+		$args = ['backup', '--json',
+			'--tag', Tags::type(Tags::TYPE_PRE_RESTORE), '--tag', Tags::customer($login), '--tag', Tags::run(Tags::RUN_RESTORE), '--', $path];
+		[$code, $out, $err] = Restic::run($args, self::TIMEOUT, true);
+		if ($code !== 0 && $code !== Snapshotter::EXIT_PARTIAL) {
+			throw new RuntimeException(Lang::t('The current state could not be backed up; nothing was changed: %s', trim(Restic::redact($err))));
+		}
+
+		if (realpath(dirname($target)) === $parent) {
+			return;
+		}
+		foreach (preg_split('~\R~', $out) ?: [] as $line) {
+			$msg = json_decode($line, true);
+			if (is_array($msg) && ($msg['message_type'] ?? '') === 'summary' && preg_match('~^[0-9a-f]{8,64}$~', (string)($msg['snapshot_id'] ?? ''))) {
+				Restic::run(['forget', '--prune', $msg['snapshot_id']], self::TIMEOUT);
+			}
+		}
+		throw new RuntimeException(Lang::t('The target changed during the backup; nothing was changed.'));
 	}
 
 	/**
