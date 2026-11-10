@@ -22,6 +22,9 @@ use PDO;
  */
 final class DbConfig
 {
+	/** Upper limit for lib/userdata.inc.php in bytes. */
+	private const MAX_SIZE = 65536;
+
 	/**
 	 * Reads $sql and $sql_root from userdata.inc.php WITHOUT executing it.
 	 *
@@ -52,12 +55,31 @@ final class DbConfig
 	 */
 	public static function parseAssignments(string $file): array
 	{
-		if (is_link($file) || !is_file($file)) {
+		// Opened first, then checked through the open handle: a check by
+		// path followed by a read by path could be raced by the panel user
+		// (swap in a link to a root-only file between the two).
+		$lstat = @lstat($file);
+		if ($lstat === false || ($lstat['mode'] & 0170000) !== 0100000) {
 			throw new \RuntimeException("$file is not a regular file.");
 		}
-		$code = @file_get_contents($file);
+		$fh = @fopen($file, 'rb');
+		if ($fh === false) {
+			throw new \RuntimeException("$file is not readable.");
+		}
+		$fstat = fstat($fh);
+		if ($fstat === false || ($fstat['mode'] & 0170000) !== 0100000
+			|| $fstat['dev'] !== $lstat['dev'] || $fstat['ino'] !== $lstat['ino']) {
+			fclose($fh);
+			throw new \RuntimeException("$file changed while it was opened.");
+		}
+		// userdata.inc.php is a few hundred bytes; never read more than 64 KB.
+		$code = stream_get_contents($fh, self::MAX_SIZE + 1);
+		fclose($fh);
 		if ($code === false) {
 			throw new \RuntimeException("$file is not readable.");
+		}
+		if (strlen($code) > self::MAX_SIZE) {
+			throw new \RuntimeException("$file is larger than 64 KB.");
 		}
 		$skip = [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT, T_OPEN_TAG, T_CLOSE_TAG];
 		$tokens = array_values(array_filter(token_get_all($code), static fn($t) => !is_array($t) || !in_array($t[0], $skip, true)));
@@ -200,8 +222,11 @@ final class DbConfig
 
 	private static function refuse(string $file, array $tokens, int $pos, string $what): never
 	{
+		// Only the kind of token and its line, never its text: the message
+		// ends up in run logs the panel shows, and the file may hold
+		// anything (or, after a race, be some other file).
 		$t = $tokens[$pos] ?? null;
-		$near = is_array($t) ? token_name($t[0]) . ' ' . trim($t[1]) . ' (line ' . $t[2] . ')' : (string)($t ?? 'end of file');
+		$near = is_array($t) ? token_name($t[0]) . ' (line ' . $t[2] . ')' : ($t === null ? 'end of file' : "'" . substr((string)$t, 0, 1) . "'");
 		throw new \RuntimeException("Unsupported content in $file: expected $what near $near.");
 	}
 
@@ -274,7 +299,15 @@ final class DbConfig
 	 */
 	public static function clientOptions(array $c): array
 	{
-		$q = static fn(string $value): string => '"' . addcslashes($value, "\\\"") . '"';
+		// A line break (or NUL) in a value would start a new option line -
+		// e.g. plugin-dir/default-auth, which the client then acts on as root.
+		$q = static function (string $value): string {
+			if (strpbrk($value, "\0\r\n") !== false) {
+				throw new \RuntimeException('Database settings must not contain line breaks.');
+			}
+
+			return '"' . addcslashes($value, "\\\"") . '"';
+		};
 
 		$lines = ['[client]', 'user=' . $q($c['user']), 'password=' . $q($c['password'])];
 		if ($c['socket'] !== '') {

@@ -5,7 +5,7 @@ Encrypted, deduplicated backups of every customer of a
 and restores from the panel: whole websites, single folders, mailboxes,
 databases or single tables, as of any restore point, in place or as a copy.
 
-**Version 1.0.1** - for Froxlor 2.3.x (developed against 2.3.13, checked
+**Version 1.0.2** - for Froxlor 2.3.x (developed against 2.3.13, checked
 against 2.3.16), prepared for a future 2.4 that keeps the 2.x architecture.
 
 ## What it does
@@ -111,7 +111,7 @@ Clone the repository **outside any web root** (for example under `/root` or
 `/usr/local/src`), then run the installer as root:
 
 ```bash
-git clone https://github.com/lichtsignale-sk/froxlor-backup.git /usr/local/src/froxlor-backup
+git clone https://github.com/gh-samk/froxlor-backup.git /usr/local/src/froxlor-backup
 cd /usr/local/src/froxlor-backup
 ./install.sh /var/www/froxlor
 ```
